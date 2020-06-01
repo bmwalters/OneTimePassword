@@ -31,7 +31,16 @@ public extension Token {
 
     /// Serializes the token to a URL.
     func toURL() throws -> URL {
-        return try urlForToken(
+        let urlComponents = try toURI()
+        guard let url = urlComponents.url else {
+            throw SerializationError.urlGenerationFailure
+        }
+        return url
+    }
+
+    /// Serializes the token to a URI.
+    func toURI() throws -> URLComponents {
+        return try uriForToken(
             name: name,
             issuer: issuer,
             factor: generator.factor,
@@ -143,7 +152,7 @@ private func representationFromString(_ string: String) throws -> Generator.Repr
     }
 }
 
-private func urlForToken(name: String, issuer: String, factor: Generator.Factor, algorithm: Generator.Algorithm, digits: Int, representation: Generator.Representation) throws -> URL {
+private func uriForToken(name: String, issuer: String, factor: Generator.Factor, algorithm: Generator.Algorithm, digits: Int, representation: Generator.Representation) throws -> URLComponents {
     var urlComponents = URLComponents()
     urlComponents.scheme = kOTPAuthScheme
     urlComponents.path = "/" + name
@@ -175,10 +184,7 @@ private func urlForToken(name: String, issuer: String, factor: Generator.Factor,
 
     urlComponents.queryItems = queryItems
 
-    guard let url = urlComponents.url else {
-        throw SerializationError.urlGenerationFailure
-    }
-    return url
+    return urlComponents
 }
 
 private func token(from url: URL, secret externalSecret: Data? = nil) throws -> Token {
