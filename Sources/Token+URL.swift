@@ -75,6 +75,7 @@ internal enum DeserializationError: Swift.Error {
 
 private let defaultAlgorithm: Generator.Algorithm = .sha1
 private let defaultDigits: Int = 6
+private let defaultDigitsSteamGuard: Int = 5
 private let defaultRepresentation: Generator.Representation = .numeric
 private let defaultCounter: UInt64 = 0
 private let defaultPeriod: TimeInterval = 30
@@ -147,11 +148,20 @@ private func urlForToken(name: String, issuer: String, factor: Generator.Factor,
     urlComponents.scheme = kOTPAuthScheme
     urlComponents.path = "/" + name
 
+    // The industry (e.g. FreeOTP+, WinAuth) determines representation from issuer=Steam.
+    let issuerParameter: String
+    switch representation {
+    case .steamguard:
+        issuerParameter = "Steam"
+    case .numeric:
+        issuerParameter = issuer
+    }
+
     var queryItems = [
         URLQueryItem(name: kQueryAlgorithmKey, value: stringForAlgorithm(algorithm)),
         URLQueryItem(name: kQueryDigitsKey, value: String(digits)),
         URLQueryItem(name: kQueryRepresentationKey, value: stringForRepresentation(representation)),
-        URLQueryItem(name: kQueryIssuerKey, value: issuer),
+        URLQueryItem(name: kQueryIssuerKey, value: issuerParameter),
     ]
 
     switch factor {
@@ -178,28 +188,6 @@ private func token(from url: URL, secret externalSecret: Data? = nil) throws -> 
 
     let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
 
-    let factor: Generator.Factor
-    switch url.host {
-    case .some(kFactorCounterKey):
-        let counterValue = try queryItems.value(for: kQueryCounterKey).map(parseCounterValue) ?? defaultCounter
-        factor = .counter(counterValue)
-    case .some(kFactorTimerKey):
-        let period = try queryItems.value(for: kQueryPeriodKey).map(parseTimerPeriod) ?? defaultPeriod
-        factor = .timer(period: period)
-    case let .some(rawValue):
-        throw DeserializationError.invalidFactor(rawValue)
-    case .none:
-        throw DeserializationError.missingFactor
-    }
-
-    let algorithm = try queryItems.value(for: kQueryAlgorithmKey).map(algorithmFromString) ?? defaultAlgorithm
-    let digits = try queryItems.value(for: kQueryDigitsKey).map(parseDigits) ?? defaultDigits
-    let representation = try queryItems.value(for: kQueryRepresentationKey).map(representationFromString) ?? defaultRepresentation
-    guard let secret = try externalSecret ?? queryItems.value(for: kQuerySecretKey).map(parseSecret) else {
-        throw DeserializationError.missingSecret
-    }
-    let generator = try Generator(_factor: factor, secret: secret, algorithm: algorithm, digits: digits, representation: representation)
-
     // Skip the leading "/"
     let fullName = String(url.path.dropFirst())
 
@@ -214,8 +202,55 @@ private func token(from url: URL, secret externalSecret: Data? = nil) throws -> 
         issuer = ""
     }
 
+    // Decode representation or infer from `issuer`.
+    let representation: Generator.Representation
+    if let queryRepresentation = try queryItems.value(for: kQueryRepresentationKey).map(representationFromString) {
+        // Our own backups include the nonstandard `representation` parameter.
+        representation = queryRepresentation
+    } else if issuer == "Steam" {
+        // The industry (e.g. FreeOTP+, WinAuth) determines representation from issuer=Steam.
+        representation = .steamguard
+    } else {
+        // The default representation is base-10 numeric.
+        representation = .numeric
+    }
+
     // If the name is prefixed by the issuer string, trim the name
     let name = shortName(byTrimming: issuer, from: fullName)
+
+    // Decode factor.
+    let factor: Generator.Factor
+    switch url.host {
+    case .some(kFactorCounterKey):
+        let counterValue = try queryItems.value(for: kQueryCounterKey).map(parseCounterValue) ?? defaultCounter
+        factor = .counter(counterValue)
+    case .some(kFactorTimerKey):
+        let period = try queryItems.value(for: kQueryPeriodKey).map(parseTimerPeriod) ?? defaultPeriod
+        factor = .timer(period: period)
+    case let .some(rawValue):
+        throw DeserializationError.invalidFactor(rawValue)
+    case .none:
+        throw DeserializationError.missingFactor
+    }
+
+    // Decode digits or infer default from `representation`.
+    let digits: Int
+    if let queryDigits = try queryItems.value(for: kQueryDigitsKey).map(parseDigits) {
+        digits = queryDigits
+    } else if case .steamguard = representation {
+        digits = defaultDigitsSteamGuard
+    } else {
+        digits = defaultDigits
+    }
+
+    // Decode algorithm and secret.
+    let algorithm = try queryItems.value(for: kQueryAlgorithmKey).map(algorithmFromString) ?? defaultAlgorithm
+    guard let secret = try externalSecret ?? queryItems.value(for: kQuerySecretKey).map(parseSecret) else {
+        throw DeserializationError.missingSecret
+    }
+
+    // Build token.
+    let generator = try Generator(_factor: factor, secret: secret, algorithm: algorithm, digits: digits, representation: representation)
 
     return Token(name: name, issuer: issuer, generator: generator)
 }
