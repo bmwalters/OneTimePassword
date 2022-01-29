@@ -722,7 +722,6 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = C93CC01A1DCBB755006255FA /* OneTimePassword-iOS.xcconfig */;
 			buildSettings = {
-				IPHONEOS_DEPLOYMENT_TARGET = 11.0;
 				"OTHER_LDFLAGS[sdk=iphoneos13.0]" = (
 					"-weak_framework",
 					CryptoKit,
@@ -738,7 +737,6 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = C93CC01A1DCBB755006255FA /* OneTimePassword-iOS.xcconfig */;
 			buildSettings = {
-				IPHONEOS_DEPLOYMENT_TARGET = 11.0;
 				"OTHER_LDFLAGS[sdk=iphoneos13.0]" = (
 					"-weak_framework",
 					CryptoKit,
